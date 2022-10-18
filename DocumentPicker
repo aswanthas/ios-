@@ -1,0 +1,110 @@
+//
+//  DocumentPicker.swift
+//  SqulineSwiftUI
+//
+//  Created by Aswanth K on 03/08/22.
+//
+
+import UIKit
+import SwiftUI
+import MobileCoreServices
+
+@available(iOS 14.0, *)
+struct DocumentPicker: UIViewControllerRepresentable {
+    @Binding var isShowFileSizeWarnning: Bool
+    func makeUIViewController(context: UIViewControllerRepresentableContext<DocumentPicker>) -> UIDocumentPickerViewController {
+        let viewController = UIDocumentPickerViewController(documentTypes: [String(kUTTypePDF), String(kUTTypeVideo), String(kUTTypeAudio)], in: .open)
+        viewController.shouldShowFileExtensions = true
+        viewController.allowsMultipleSelection = false
+        viewController.delegate = context.coordinator
+        return viewController
+    }
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {
+        print("Hello")
+    }
+}
+
+@available(iOS 14.0, *)
+extension DocumentPicker {
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self )
+    }
+    
+    class Coordinator: NSObject, UIDocumentPickerDelegate {
+        var chatViewModel = RedesignChatViewModel()
+        let parent: DocumentPicker
+        var path: String?
+        init(_ documentPicker: DocumentPicker) {
+            self.parent = documentPicker
+        }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else { return }
+            let fileurl = "\(url)"
+            var fileSizeValue: UInt64 = 0
+            var fileDataSize: Double = 0
+            let isAccessing = url.startAccessingSecurityScopedResource()
+            // Here you're processing your url
+            do {
+                let fileAttribute: [FileAttributeKey: Any] = try FileManager.default.attributesOfItem(atPath: url.path)
+                if let fileNumberSize: NSNumber = fileAttribute[FileAttributeKey.size] as? NSNumber {
+                    fileSizeValue = UInt64(truncating: fileNumberSize)
+                    let byteCountFormatter: ByteCountFormatter = ByteCountFormatter()
+                    byteCountFormatter.countStyle = ByteCountFormatter.CountStyle.file
+                    byteCountFormatter.allowedUnits = ByteCountFormatter.Units.useMB
+                    print(byteCountFormatter.string(fromByteCount: Int64(fileSizeValue)))
+                    fileDataSize = (Double(fileSizeValue) / (1024 * 1024))
+                }
+                if fileDataSize <= 10.00000 {
+                    //                    guard let url = urls.first else { return }
+                    let doc = NSData(contentsOf: urls.first!)
+                    var data: Data?
+                    var fileName = "newpdf"
+                    var fileExt = "pdf"
+                    print("---->>\(url)")
+                    fileName = String(url.lastPathComponent)
+                    print("fileName:\(fileName)")
+                    let fileNameArr = fileName.split(separator: ".")
+                    fileExt = String(fileNameArr.last!).lowercased()
+                    if fileExt == "pdf" || fileExt == ".docs" || fileExt == ".doc" || fileExt == ".docx" || fileExt == ".xls" {
+                        data = doc as? Data
+                    } else if fileExt == "mp3" || fileExt == "m4a" {
+                        data =  doc as? Data
+                    } else if fileExt == "mp4" || fileExt == "mov" {
+                        data = doc as? Data
+                    }
+                    
+                    // sending function --- here
+                    
+                    let sendingFile = FileSending(data: data, fileName: fileName, thumbImage: nil, duration: nil, fileSize: "\(data?.count)", localPath: fileurl, indexPath: nil)
+                    DispatchQueue.global(qos: .background).async { [self] in
+                        print("Run on background thread")
+                        chatViewModel.sendFile(sendingFile, completion: { (isSuccess) in
+                            print("Send file progress: \(isSuccess)")
+                            self.chatViewModel.fileSending = false
+                            controller.dismiss(animated: true, completion: nil)
+                        }, onProgress: { (progress) in
+                            print("Send file progress: \(progress)")
+                            self.chatViewModel.fileSending = true
+                            controller.dismiss(animated: true, completion: nil)
+                        })
+                        DispatchQueue.main.async {
+                            print("We finished that.")
+                            // only back on the main thread, may you access UI:
+                        }
+                    }
+                } else {
+                    print("the file size greaterthan 10 MB")
+                    parent.isShowFileSizeWarnning.toggle()
+                }
+            } catch {
+                print(error.localizedDescription)
+            }
+            if isAccessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            controller.dismiss(animated: true)
+        }
+    }
+}
